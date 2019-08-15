@@ -6,20 +6,26 @@ import {
   ActivityIndicator,
   FlatList,
   StatusBar,
-  ToastAndroid
+  ToastAndroid,
+  TouchableOpacity
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import FeedItem from "../components/FlatList/FeedItem";
 import { week5Api } from "../common/axios";
+import SearchModal from "../components/Modal";
 
 export default class HomeScreen extends React.Component {
   state = {
     isLoading: false,
     articles: [],
+    publishers: [],
     totalResults: 0,
     page: 1,
     error: "",
     isLoadMore: false,
-    isRefreshing: false
+    isRefreshing: false,
+    lastPageReached: false,
+    modalSearch: false
   };
   componentDidMount() {
     const { page } = this.state;
@@ -33,12 +39,16 @@ export default class HomeScreen extends React.Component {
       const res = await week5Api.get(
         `/top-headlines?country=us&apiKey=9518dd1b64ee47e19d0f6e05007b7c16&page=${page}`
       );
+      const newArticles = articles.concat(res.data.articles),
+        publishers = this.getPulishers(newArticles);
       this.setState({
         page,
         isLoading: false,
-        articles: articles.concat(res.data.articles),
+        articles: newArticles,
         totalResults: res.data.totalResults,
-        isRefreshing: false
+        isRefreshing: false,
+        publishers,
+        lastPageReached: res.data.articles.length > 0 ? false : true
       });
     } catch (error) {
       ToastAndroid.show("Loading articles fail", ToastAndroid.SHORT);
@@ -46,11 +56,20 @@ export default class HomeScreen extends React.Component {
     }
   };
 
-  renderItem = ({ item }) => <FeedItem item={item} />;
+  getPulishers = articles => {
+    var publishers = articles.map(item => item.source.name);
+    return publishers.filter((item, i) => publishers.indexOf(item) >= i);
+  };
 
-  onFlatListEnd = async () => {
-    const { page } = this.state;
+  renderItem = ({ item }) =>
+    item ? <FeedItem item={item} /> : <Text>No articles found.</Text>;
+
+  onFlatListEnd = () => {
+    const { page, lastPageReached } = this.state;
     const newPage = page + 1;
+    if (lastPageReached) {
+      return;
+    }
     this.callApi(newPage);
   };
 
@@ -60,16 +79,47 @@ export default class HomeScreen extends React.Component {
     this.callApi(firstPage);
   };
 
-  renderFooter = () => (
-    <ActivityIndicator
-      size="large"
-      color="blue"
-      animating={!this.state.refreshing}
-    />
-  );
+  renderFooter = () =>
+    this.state.lastPageReached ? (
+      <Text>No more articles</Text>
+    ) : (
+      <ActivityIndicator
+        size="large"
+        color="blue"
+        animating={!this.state.refreshing}
+      />
+    );
+
+  onHandleVisibleSearchModal = () => {
+    this.setState({ modalSearch: !this.state.modalSearch });
+  };
+
+  onFilter = ({ title, source }) => {
+    console.log(title);
+    
+    this.setState({ articles: [], isLoading: true });
+    const { articles, modalSearch } = this.state;
+    const articlesFitler = articles.filter(
+      article =>
+        article.title.includes(title) & article.source.name === source.name
+    );
+    this.setState({
+      articles: articlesFitler,
+      totalResults: articlesFitler.length,
+      isLoading: false,
+      modalSearch: !modalSearch
+    });
+  };
 
   render() {
-    const { isLoading, articles, isRefreshing, totalResults } = this.state;
+    const {
+      isLoading,
+      articles,
+      publishers,
+      isRefreshing,
+      totalResults,
+      modalSearch
+    } = this.state;
     if (isLoading) {
       return (
         <View style={styles.container}>
@@ -90,7 +140,19 @@ export default class HomeScreen extends React.Component {
           ListFooterComponent={this.renderFooter}
           onRefresh={this.onFlatListRefresh}
           refreshing={isRefreshing}
-          
+        />
+        <TouchableOpacity
+          style={styles.btnSearch}
+          onPress={this.onHandleVisibleSearchModal}
+        >
+          <Ionicons name="ios-search" size={22} />
+        </TouchableOpacity>
+        <SearchModal
+          visible={modalSearch}
+          onClose={this.onHandleVisibleSearchModal}
+          articles={articles}
+          publishers={publishers}
+          onFilter={this.onFilter}
         />
       </View>
     );
@@ -106,7 +168,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#fff",
     justifyContent: "center",
-    alignItems: "center",
     marginTop: StatusBar.currentHeight
   },
   textTotalArticles: {
@@ -114,5 +175,17 @@ const styles = StyleSheet.create({
   },
   flatList: {
     marginHorizontal: 15
+  },
+
+  btnSearch: {
+    position: "absolute",
+    backgroundColor: "#add8e6",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 60,
+    borderRadius: 30,
+    height: 60,
+    right: 30,
+    bottom: 40
   }
 });
